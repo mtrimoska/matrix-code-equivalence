@@ -1,0 +1,227 @@
+//vars := [map_char * "_" * IntegerToString(i) * "_" * IntegerToString(j) : i in [1..m], j in [1..m], map_char in ["a","b"] ];
+vars_S := ["s_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..m+n], i in [1..m+n] ];
+vars_T := ["t_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..k], i in [1..k] ];
+
+consts_F := ["f_" * IntegerToString(s) * "_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..m+n], i in [1..m+n], s in [1..k] ];
+consts_P := ["p_" * IntegerToString(s) * "_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..m+n], i in [1..m+n], s in [1..k] ];
+consts := consts_F cat consts_P;
+
+if T_version eq 1 then
+  R := PolynomialRing(K, (m+n)^2+k^2, "grevlex");
+  R_bool := BooleanPolynomialRing((m+n)^2+k^2, "grevlex");
+  vars := vars_S cat vars_T;
+else
+  R := PolynomialRing(K, (m+n)^2, "grevlex");
+  R_bool := BooleanPolynomialRing((m+n)^2, "grevlex");
+  vars := vars_S;
+end if;
+
+AssignNames(~R, vars);
+AssignNames(~R_bool, vars);
+
+R_S := PolynomialRing(K, (m+n)^2, "grevlex");
+R_S_bool := BooleanPolynomialRing((m+n)^2, "grevlex");
+AssignNames(~R_S, vars_S);
+AssignNames(~R_S_bool, vars_S);
+
+R_T := PolynomialRing(K, k^2, "grevlex");
+R_T_bool := BooleanPolynomialRing(k^2, "grevlex");
+AssignNames(~R_T, vars_T);
+AssignNames(~R_T_bool, vars_T);
+
+// which field
+if(q eq 2) then
+  R := R_bool;
+  R_S := R_S_bool;
+  R_T := R_T_bool;
+end if;
+
+S_ := Matrix(R, m+n, m+n, [R.((i-1)*(m+n)+j) : j in [1..m+n], i in [1..m+n]]);
+
+if T_version eq 2 then
+  T_ := IdentityMatrix(K,k);
+else
+  if T_version eq 3 then
+    assert(N eq k);
+    T_ := S_;
+  else
+    T_ := Matrix(R, k, k, [R.((i-1)*k+j+((m+n)^2)) : j in [1..k], i in [1..k]]);
+  end if;
+end if;
+
+S_base_S := Matrix(R_S, m+n, m+n, [R_S.((i-1)*(m+n)+j) : j in [1..m+n], i in [1..m+n]]);
+
+T_base_T := Matrix(R_T, k, k, [R_T.((i-1)*k+j) : j in [1..k], i in [1..k]]);
+
+load "common_modelisation.magma";
+
+function addQuadraticPart(F, P, S_, T_, BaseRing_)
+  system := [];
+  system := addFieldEquations(system, BaseRing_);
+
+  //left side
+  Left := [ ZeroMatrix(BaseRing_,m+n,m+n) : s in [1..k]];
+  for s := 1 to k do
+     for j := 1 to k do
+       //AddScaledMatrix(Left[s], T_[j][s], P[j]);
+       Left[s] := Left[s] + T_[j][s]*P[j];
+     end for;
+   end for;
+
+  for s in [1..k] do
+    Right := S_*F[s]*Transpose(S_);
+    for i in [1..m+n] do
+      for j in [i..m+n] do
+        Append(~system, Right[i][j]-Left[s][i][j]);
+      end for;
+    end for;
+  end for;
+  return system;
+end function;
+
+
+function homQMLECreate(F, P, S_, T_, BaseRing_)
+  return addQuadraticPart(F, P, S_, T_, BaseRing_);
+end function;
+
+function onlyhomQMLECreate(f, p)
+  return homQMLECreate(f, p, S_, T_, R);
+end function;
+
+function inhomQMLECreate(F_2, P_2, F_1, P_1, F_0, P_0)
+  F_1, P_1, F_0, P_0 := fixCoefficientRingCompatibility(F_1, P_1, F_0, P_0, R);
+  system := homQMLECreate(F_2, P_2, S_, T_, R);
+  system := addDehomogenization(system, F_1, P_1, F_0, P_0, S_, T_);
+  return system;
+end function;
+
+function QMLECheckSolution(solution, S, T)
+  //The way the system was created, T is actually T^-1
+  for i in [1..m+n] do
+    for j in [1..m+n] do
+      if solution[(i-1)*(m+n)+j] ne S[i][j] then
+        return false;
+      end if;
+    end for;
+  end for;
+  if T_version eq 1 then
+    for i in [1..k] do
+      for j in [1..k] do
+        if solution[(i-1)*k+j+((m+n)^2)] ne T[i][j] then
+          return false;
+        end if;
+      end for;
+    end for;
+  end if;
+  return true;
+end function;
+
+
+function QMLECheckIfSolution(system, S, T)
+  //The way the system was created, T is actually T^-1
+  for eq_num in [1..#system] do
+    eq_eval := system[eq_num];
+    for i in [1..m+n] do
+      for j in [1..m+n] do
+        eq_eval := Evaluate(eq_eval, (i-1)*(m+n)+j, S[i][j]);
+      end for;
+    end for;
+    if T_version eq 1 then
+      for i in [1..k] do
+        for j in [1..k] do
+          eq_eval := Evaluate(eq_eval, (i-1)*k+j+((m+n)^2), T[i][j]);
+        end for;
+      end for;
+    end if;
+    if (eq_eval ne 0) then return false; end if;
+  end for;
+  return true;
+end function;
+
+//modifies the system, does not make a copy
+function QMLE_add_D3_random(system)
+  new_system := system;
+  nb_eq_pool := k*(m+n)^2;
+  nb_vars_pool := (m+n)^2;
+  nb_eq_needed := ((m+n)^6+5*(m+n)^2+36*(m+n)^2*k^2+6*k^2)/6;
+  printf "Creating %o equations (out of %o possible)\n", nb_eq_needed, nb_eq_pool*nb_vars_pool;
+  while #new_system lt nb_eq_needed do
+    rand_eq := Random(1,nb_eq_pool);
+    rand_var := Random(1,nb_vars_pool);
+    Append(~new_system, system[rand_eq]*R.rand_var);
+  end while;
+  return new_system;
+end function;
+
+function QMLE_add_D3_full(system)
+  new_system := [];
+  for equation in system do
+    Append(~new_system, equation);
+    for var in [1..(m+n)^2] do
+      Append(~new_system, equation*R.var);
+    end for;
+  end for;
+  return new_system;
+end function;
+
+function QMLESystemToMacaulayGrevlex(system)
+  //find degree of system
+  deg := 0;
+  for f in system do
+    if TotalDegree(f) gt deg then
+      deg := TotalDegree(f);
+    end if;
+  end for;
+
+  //create a list of monomials
+  monomials := [];
+  cpt := 1;
+  // degree 3 monomials - contain only S vars
+  if deg eq 3 then
+    for i in [1..(m+n)^2] do
+      if q eq 2 then
+        ii := i - 1;
+      else
+        ii := i;
+      end if;
+      for j in [1..ii] do
+        if q eq 2 then
+          jj := j - 1;
+        else
+          jj := j;
+        end if;
+        for z in [1..jj] do
+          monomials[cpt] := R.z*R.j*R.i;
+          cpt +:= 1;
+        end for;
+      end for;
+    end for;
+    // degree 2 S-T monomials
+    for i in [1..(m+n)^2] do
+      for j in [1..k^2] do
+        monomials[cpt] := R.i*R.((m+n)^2 + j);
+        cpt +:= 1;
+      end for;
+    end for;
+  end if;
+  // degree 2 monomials - contain only S vars
+  for i in [1..(m+n)^2] do
+    if q eq 2 then
+      ii := i - 1;
+    else
+      ii := i;
+    end if;
+    for j in [1..ii] do
+      //printf "%o * %o\n", R.j,R.i;
+      monomials[cpt] := R.j*R.i;
+      cpt +:= 1;
+    end for;
+  end for;
+  // degree 1
+  for i in [1..Rank(R)] do
+    monomials[cpt] := R.i;
+    cpt +:= 1;
+  end for;
+  M := MQSpecificSystemToMacaulay(system, R, monomials);
+  return M;
+end function;

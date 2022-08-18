@@ -1,0 +1,177 @@
+function fixCoefficientRingCompatibility(F_1, P_1, F_0, P_0, BaseRing_)
+  // make vectors compatible with modelization matrices
+  P_1_seq := [];
+  for i in [1..m+n] do
+    P_1_seq := P_1_seq cat [P_1[i]];
+  end for;
+  F_1_seq := [];
+  for i in [1..m+n] do
+    F_1_seq := F_1_seq cat [F_1[i]];
+  end for;
+  P_1_ := Matrix(BaseRing_, (m+n), k, P_1_seq);
+  F_1_ := Matrix(BaseRing_, (m+n), k, F_1_seq);
+
+
+  P_0_ := Matrix(BaseRing_, 1, k, [P_0]);
+  F_0_ := Matrix(BaseRing_, 1, k, [F_0]);
+
+  return F_1_, P_1_, F_0_, P_0_;
+end function;
+
+function fixInverseCoefficientRingCompatibility(F_1, BaseRing_)
+  // make vectors compatible with modelization matrices
+  F_1_seq := [];
+  for i in [1..k] do
+    F_1_seq := F_1_seq cat [F_1[i]];
+  end for;
+  F_1_ := Matrix(BaseRing_, k, (m+n), F_1_seq);
+
+  return F_1_;
+end function;
+
+function addLinearPart(system, F_1, P_1, S_, T_)
+  Left := P_1*T_;
+  Right := S_*F_1;
+  for i in [1..m+n] do
+    for j in [1..k] do
+      Append(~system, Right[i][j]-Left[i][j]);
+    end for;
+  end for;
+
+  return system;
+end function;
+
+function addConstPart(system, F_0, P_0, T_)
+  Left := P_0*T_;
+  for i in [1..k] do
+    Append(~system, F_0[1][i]-Left[1][i]);
+  end for;
+  return system;
+end function;
+
+function addDehomogenization(system, F_1, P_1, F_0, P_0, S_, T_)
+  // degree 1 part
+  system := addLinearPart(system, F_1, P_1, S_, T_);
+  //degree 0 part
+  system := addConstPart(system, F_0, P_0, T_);
+  return system;
+end function;
+
+// call once after the system is generated
+function addFieldEquations(system, BaseRing_)
+  for i in [1..Rank(BaseRing_)] do
+    Append(~system, BaseRing_.i^(q) - BaseRing_.i);
+  end for;
+  return system;
+end function;
+
+// does not specialize variables ; it is better to use corresponding functions in QMLE/BMLE modelization
+function systemToMacaulayGrevlex(system, BaseRing_)
+
+  //find degree of system
+  deg := 0;
+  for f in system do
+    if TotalDegree(f) gt deg then
+      deg := TotalDegree(f);
+    end if;
+  end for;
+
+  if deg eq 2 then
+    M := ZeroMatrix(BaseRing_, #system, Floor((Rank(BaseRing_)*(Rank(BaseRing_)+1))/2 + 1));
+  else
+    if deg eq 3 then
+      M := ZeroMatrix(BaseRing_, #system, Floor((Rank(BaseRing_)*(Rank(BaseRing_)-1)*(Rank(BaseRing_)-2))/6 + (Rank(BaseRing_)*(Rank(BaseRing_)+1))/2 + 1));
+    else
+      print "Degree not supported.";
+      assert(false);
+    end if;
+  end if;
+
+  //fill matrix
+  for equation in [1..#system] do
+    col := 1;
+
+    // degree 3
+    if deg eq 3 then
+      for i in [1..Rank(BaseRing_)] do
+        if q eq 2 then
+          ii := i - 1;
+        else
+          ii := i;
+        end if;
+        for j in [1..ii] do
+          if q eq 2 then
+            jj := j - 1;
+          else
+            jj := j;
+          end if;
+          for z in [1..jj] do
+            M[equation][col] := MonomialCoefficient(system[equation], R.z*R.j*R.i);
+            col +:= 1;
+          end for;
+        end for;
+      end for;
+    end if;
+
+    // degree 2
+    for i in [1..Rank(BaseRing_)] do
+      if q eq 2 then
+        ii := i - 1;
+      else
+        ii := i;
+      end if;
+      for j in [1..ii] do
+        M[equation][col] := MonomialCoefficient(system[equation], R.j*R.i);
+        col +:= 1;
+      end for;
+    end for;
+    // degree 1
+    for i in [1..Rank(BaseRing_)] do
+      M[equation][col] := MonomialCoefficient(system[equation], R.i);
+      col +:= 1;
+    end for;
+    // constant
+    if TrailingTerm(system[equation]) in K then
+      M[equation][col] := TrailingTerm(system[equation]);
+    end if;
+  end for;
+
+  return M;
+end function;
+
+// ordering depends on the list monomials
+function MQSpecificSystemToMacaulayZ(system, BaseRing_, monomials)
+
+  M := SparseMatrix();
+  //fill matrix
+  for equation in [1..#system] do
+    for col in [1..#monomials] do
+      SetEntry(~M, equation, col, MonomialCoefficient(system[equation], monomials[col]));
+    end for;
+    // constant
+    if TrailingTerm(system[equation]) in K then
+      SetEntry(~M, equation, #monomials + 1, TrailingTerm(system[equation]));
+    end if;
+  end for;
+
+  return M;
+end function;
+
+// ordering depends on the list monomials
+function MQSpecificSystemToMacaulay(system, BaseRing_, monomials)
+  MSpace := KMatrixSpace(K, #system, #monomials + 1);
+  M := ZeroMatrix(K, #system, #monomials + 1);
+  //fill matrix
+  for equation in [1..#system] do
+    for col in [1..#monomials] do
+      M[equation][col] := MonomialCoefficient(system[equation], monomials[col]);
+    end for;
+    // constant
+    if TrailingTerm(system[equation]) in K then
+      M[equation][#monomials + 1] := TrailingTerm(system[equation]);
+    end if;
+  end for;
+
+  M := MSpace ! M;
+  return M;
+end function;

@@ -1,0 +1,52 @@
+q:=2;
+N:=16;
+k := 16;
+
+nb_tests := 1;
+
+K:=FiniteField(q);
+V:=VectorSpace(K,N);
+T_version := 1;
+m := Round(N / 2);
+n := N - m;
+
+load "BFV13_rank_algo.magma";
+load "MCE_QMLE.magma";
+
+printf "N=%o (m=%o, n=%o), K=GF(%o)\n", N, m, n, q;
+
+l := [];
+found := [];
+for i := 1 to nb_tests do
+	time S,T,f,p := MCEProblemGen();
+	print "Solutions should be: ", S, T;
+	t := Cputime();
+	sols := FindIsomorphism_Rank(f,p,0,0,0);
+	Append(~l, Cputime() - t);
+	if IsEmpty(sols) then
+		Append(~found,0);
+	else
+		Append(~found,1);
+	end if;
+	printf "\n%o solution(s) found:\n", #sols;
+	sols;
+
+	printf "Test %o finished\n", i;
+end for;
+
+printf "Runtime:";
+print l;
+avg := 0;
+for i in l do
+	avg := avg+i;
+end for;
+avg := avg/#l;
+printf "Average runtime : %o\n", avg;
+
+printf "Found solution:";
+print found;
+sum := 0;
+for i in found do
+	sum := sum+i;
+end for;
+printf "Number of found solutions : %o from %o", sum, #found;

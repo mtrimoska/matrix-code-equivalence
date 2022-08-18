@@ -1,0 +1,120 @@
+load "inhomogenous_modified.magma";
+
+/*** Currently using too much memory, need to improve algorithm ***/
+function BuildListAlg2(f,DMat_basis)
+printf "Using algorithm 2\n";
+  S_zero := {};
+  S_nonzero := {};
+  inner := 0;
+  success := 0;
+
+  V_alpha:=VectorSpace(K,n);
+  V_beta:=VectorSpace(K,m);
+  S_alpha_r := [{Zero(V_alpha)} : i in [1..n]];
+  S_beta_r := [{Zero(V_beta)} : i in [1..n]];
+  //assume n <= m for best result - otherwise should exhaust beta
+  beta := Random(V_beta);
+  for alpha in V_alpha do
+    if IsZero(alpha) then continue; end if;
+    inner +:= 1;
+    x := V!HorizontalJoin(alpha,beta);
+    M := DMat2(DMat_basis,x);  // Computes the differential of f in x
+    r := Rank(M);
+    f_alpha := Submatrix(M, m+1, 1, n, k);
+    r_alpha := Rank(f_alpha);
+    if r_alpha le n - 1 then
+      Include(~(S_alpha_r[r_alpha]), alpha);
+      ker_alpha := Kernel(f_alpha);
+      for ker_element_beta in ker_alpha do
+        if not IsZero(ker_element_beta) then
+          Include(~(S_beta_r[r_alpha]), V_beta!ker_element_beta);
+        end if;
+      end for;
+    end if;
+  end for;
+
+  //find smallest rank that has two roots
+  for i := 1 to n do
+    Exclude(~S_alpha_r[i], Zero(V_alpha));
+    Exclude(~S_beta_r[i], Zero(V_beta));
+    if #S_alpha_r[i] ge 2 then
+      S_alpha := S_alpha_r[i];
+      S_beta := S_beta_r[i];
+      printf "Smallest rank is: %o \n", i;
+      success := 1;
+      break;
+    end if;
+  end for;
+
+  if success eq 1 then // it found zeros
+    // build lists of zeros and nonzeros
+    for alpha in S_alpha do
+      for beta in S_beta do
+        x := V!HorizontalJoin(alpha,beta);
+        fx := Encrypt(f, x);
+        if IsZero(fx) then
+          Include(~S_zero, x);
+        else
+          Include(~S_nonzero, x);
+        end if;
+      end for;
+    end for;
+  end if;
+
+  return S_zero, S_nonzero;
+end function;
+
+
+function do_pairs_deterministic(La, Lb, a, b, DMat_basis_a, DMat_basis_b, big, small)
+
+it := 1;
+
+for x in Lb do
+
+  b_1 := DMat2(DMat_basis_b, x);
+  b_0 := Encrypt(b,x);
+
+  r_x := Rank(b_1);
+
+  if (not IsZero(b_0) and IsConsistent(b_1,b_0)) then
+
+  for y in La do
+
+    a_1 := DMat2(DMat_basis_a,y);
+    a_0 := Encrypt(a,y);
+
+    r_y := Rank(a_1);
+    print "Rank x: ", r_x, "rank y: ", r_y;
+    print "\n";
+
+    if r_x ne r_y then continue; end if;
+
+    assert IsConsistent(a_1, a_0);
+
+    printf "iteration %o over %o\n", it, #La*#Lb;
+    it +:= 1;
+
+    sols := FindIsomorphism_Inhomogeneous_Alg2(a,a_1,a_0, b, b_1, b_0,big,small);
+
+    if sols ne [] then
+		printf "found sols for x:%o and y:%o\n", x, y;
+      return sols;
+    end if;
+  end for;
+  break; // because it's the deterministic version
+  end if;
+end for;
+return [], 0, 0;
+end function;
+
+
+// should check success afterwards, the lists that are returned can be empty
+function BuildLists_zeros_nonzeros(f,p)
+  DMat_basis_f := [ DMat(f,V.i) : i in [1..N]];
+  DMat_basis_p := [ DMat(p,V.i) : i in [1..N]];
+
+
+  Lf_zero, Lf_nonzero := BuildListAlg2(f, DMat_basis_f);
+  Lp_zero, Lp_nonzero := BuildListAlg2(p, DMat_basis_p);
+  return Lf_zero, Lf_nonzero, Lp_zero, Lp_nonzero;
+end function;

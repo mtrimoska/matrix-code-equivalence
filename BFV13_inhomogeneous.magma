@@ -1,0 +1,268 @@
+
+/************************************************
+ * Evalue une famille de polynomes sur un point
+ * En gros, c'est le chiffrement de HFE
+ ************************************************/
+Encrypt := function(f, x)
+    return Vector([InnerProduct(x*M, x) : M in f]);
+end function;
+
+/***************************************
+ * Computes T o a
+ **************************************/
+function ChangeCoordinatesLeft(a,T)
+
+ Ta := [ ZeroMatrix(BaseRing(T),N,N) : i in [1..k]];
+  for i := 1 to #a do
+    for j := 1 to k do
+      AddScaledMatrix(~Ta[i], T[j,i], a[j]);
+//      TaS[i] +:= T[j,i] * aS[j];
+    end for;
+  end for;
+
+  return Ta;
+end function;
+
+
+/***************************************
+ * Computes a o S
+ **************************************/
+function ChangeCoordinatesRight(a,S)
+ aS := [ S*M*Transpose(S) : M in a];
+ return aS;
+end function;
+
+
+/*********************************************
+ * puts the matrices in upper-triangular form
+ *********************************************/
+function ReducedForm(a)
+ a_r := a;
+ for i := 1 to #a do
+   for j := 1 to N do
+     for k := j+1 to N do
+       a_r[i][j,k] +:= a[i][k,j];
+       a_r[i][k,j] := 0;
+     end for;
+   end for;
+ end for;
+ return a_r;
+end function;
+
+
+/***********************************************************
+ * Génère une instance quadratique homogène du problème IP
+ * Les matrices S et T sont tirées aléatoirement
+ * les familles de polynomes sont tirées aléatoirement
+ * parmis celles qui sont liées par S et T.
+ ************************************************************/
+function ProblemGen_original()
+  S := Random(GL(N, K));
+  T := Random(GL(k, K));
+
+  a := [ RandomMatrix(K,N,N) : i in [1..k]];
+  b := ChangeCoordinatesLeft(ChangeCoordinatesRight(a,S),T^-1);
+
+  return S,T,a,b;
+end function;
+
+
+// ***********************************
+// *  Add an inhomogeneous component
+// **********************************
+function random_inhomogeneous(a,b,S,T);
+  a_2 := a;
+  a_1 := RandomMatrix(K,N,k);
+  a_0 := Random(VectorSpace(K,k));
+
+  b_2 := b;
+  b_1 := S*a_1*(T^-1);
+  b_0 := a_0*(T^-1);
+
+  return a_2, a_1, a_0, b_2, b_1, b_0;
+end function;
+
+
+
+/******************************
+ * Calcule la différentielle en un point.
+ * Etant donné f,x et y,
+ * ça calcule f(x+y)-f(x)-f(y)+f(0)
+ *******************************/
+function Diff(f,x,y)
+  return Encrypt(f,x+y) - Encrypt(f,y) - Encrypt(f,x) + Encrypt(f,V!0);
+end function;
+
+/******************************************************
+ * Calcule la différentielle par rapport à [direction]
+ * Etant donné f et un vecteur [direction],
+ * ça renvoie la matrice qui décrit la fonction :
+ * x -> f(x+direction) - f(x) - f(direction) + f(0)
+ *****************************************************/
+function DMat(PK, direction)
+  b := Basis(V);
+  M := Matrix([ Diff(PK, direction, b[i]) : i in [1..N]]);
+  return M;
+end function;
+
+
+// *********************************************
+// Computes the kernel, under the assumption that y = x*S
+function kernel_basis(a_2,a_1, b_2,b_1, x, y)
+
+  DB := DMat(b_2,x); // D
+  DA := DMat(a_2,y); // C
+
+  NE := VerticalJoin( [KroneckerProduct(IdentityMatrix(K,k), -b_1[i]) : i in [1..N]]);
+  SE := VerticalJoin( [KroneckerProduct(IdentityMatrix(K,k), -DB[i]) : i in [1..N]]);
+  NW := KroneckerProduct(IdentityMatrix(K,N), Transpose(a_1));
+  SW := KroneckerProduct(IdentityMatrix(K,N), Transpose(DA));
+
+  // this transpose we could get rid of
+  //M := Transpose(BlockMatrix( [[ NW, NE], [SW, SE]]));
+  // &&
+  _N_ := HorizontalJoin(NW, NE);
+  _S_ := HorizontalJoin(SW, SE);
+  M := Transpose(VerticalJoin(_N_, _S_));
+  ker := NullSpace(M);
+  r := Dimension(ker);
+
+  S_basis := [ Matrix(K, N, ElementToSequence(ker.i)[1..N^2]) : i in [1..r]];
+  T_basis := [ Transpose(Matrix(K, k, ElementToSequence(ker.i)[N^2+1..N^2+k^2])) : i in [1..r]];
+
+  return r, S_basis, T_basis;
+end function;
+
+// *********************************************************
+// * Given a basis of S, finish the Job
+function finish(a_2,b_2,r,S_basis, T_basis)
+  R := PolynomialRing(K, r);
+
+  poly_a := [ Matrix(R,M) : M in a_2 ];
+  poly_b := [ Matrix(R,M) : M in b_2 ];
+
+  Sx := &+ [ Matrix(R, R.i * S_basis[i]) : i in [1..r]];
+  Tx := &+ [ Matrix(R, R.i * T_basis[i]) : i in [1..r]];
+
+  "--> Computing RHS (usually fast)";
+  time Tbx := ChangeCoordinatesLeft(poly_b,Tx);
+
+  "--> Computing LHS (usually slow)";
+
+  time coeffs_2 := [  [ [ S_basis[i] * A * Transpose(S_basis[j]) : j in [1..r]] : i in [1..r]] : A in a_2 ];
+
+  time aSx := ChangeCoordinatesRight(poly_a,Sx);
+
+  assert MonomialCoefficient(aSx[1][1,1], R.1*R.2) eq coeffs_2[1][1,2][1,1]+coeffs_2[1][2,1][1,1];
+
+  z := ReducedForm([ Tbx[i] - aSx[i] : i in [1..k]]);
+  eqs := &cat [ ElementToSequence(z[i]) : i in [1..k] ];
+
+  if (q lt r) then
+    "--> Adding field equations";
+    eqs := eqs cat [R.i^(q) - R.i : i in [1..r]];
+  end if;
+
+  printf "--> Groebner Basis : %o variables and %o equations over GF(%o).\n", r, #eqs, q;
+
+  J := Ideal(eqs);
+  time Va := VarietySequence(J);
+
+   non_trivial := [];
+
+  for sol in Va do
+    if not IsZero(Vector(sol)) then
+      S_ := &+ [ S_basis[i] * sol[i] : i in [1..r]];
+      T_ := &+ [ T_basis[i] * sol[i] : i in [1..r]];
+
+      for i := 1 to 100 do
+        x := Random(V);
+        if Encrypt(a_2,x*S_) ne Encrypt(b_2,x)*T_ then
+          "aaargh, mauvaise solution ! (c'est un bug)";
+          exit;
+        end if;
+      end for;
+
+      Include(~non_trivial, <S_,T_>); ;
+   end if;
+  end for;
+  return non_trivial;
+end function;
+
+function FindIsomorphism_Inhomogeneous(a_2,a_1,a_0,b_2,b_1,b_0, do_big_ker, do_small_ker)
+
+"********************************************************";
+"*           INHOMOGENEOUS CODE -- MAIN                 *";
+"********************************************************";
+
+if not IsConsistent(b_1, b_0) then
+   "aaargl ! I'm aborting on line 2 ! Instance is not nice....\n";
+   return [];
+ end if;
+
+printf "--> Matrix will be of size %o, with density %.3o\n", 2*N^2, 4.0/N;
+
+// assert IsConsistent(a_1, a_0);
+// assert a_0 eq b_0*T;
+// assert S*a_1 eq b_1*T;
+
+// find the other relation on S.
+x := Solution(b_1, b_0);
+y_0, Ka := Solution(a_1, a_0);
+
+
+if Dimension(Ka) eq 0 then
+  printf "--> Invertible linear part ! Cool !\n";
+
+  r, S_basis, T_basis := kernel_basis(a_2,a_1, b_2,b_1, x, y_0);
+  printf "--> S and T live in a space of dimension %o\n", r;
+
+  sols := finish(a_2,b_2,r,S_basis, T_basis);
+  printf "--> Found %o non-trivial and valid solutions.\n", #sols;
+  return sols;
+
+else // Non-invertible linear part
+
+  printf "--> The linear part has a kernel of dimension %o.\n", Dimension(Ka);
+  printf "----> We will have %o iterations of the loop.\n", q^Dimension(Ka);
+
+  bigest_ker_dim := 0;
+  all_ker := [];
+
+  if do_big_ker then "--> doing big kernels "; end if;
+  if do_small_ker then "--> doing small kernels "; end if;
+
+  for y_Ka in Ka do
+    y := y_0 + y_Ka;
+    r, S_basis, T_basis := kernel_basis(a_2, a_1, b_2, b_1, x, y);
+
+    Include(~all_ker, <S_basis,T_basis>);
+
+    if r gt bigest_ker_dim then
+      bigest_ker_dim := r;
+    end if;
+  end for;
+
+  r := bigest_ker_dim;
+
+  for i := 1 to #all_ker do
+
+     S_basis := all_ker[i][1];
+     T_basis := all_ker[i][2];
+     r := #S_basis;
+
+     if (r eq bigest_ker_dim and do_big_ker) or (r lt bigest_ker_dim and do_small_ker) then
+
+       printf "[heuristic : %o/%o] --> S and T live in a space of dimension %o\n", i, #all_ker, r;
+
+       sols := finish(a_2,b_2,r,S_basis, T_basis);
+       if #sols gt 0 then
+          printf "--> Found %o non-trivial and valid solutions.\n", #sols;
+         return sols;
+       end if;
+     end if;
+  end for;
+
+  return [];
+end if;
+end function;

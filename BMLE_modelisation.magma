@@ -1,0 +1,107 @@
+//vars := [map_char * "_" * IntegerToString(i) * "_" * IntegerToString(j) : i in [1..m], j in [1..m], map_char in ["a","b"] ];
+vars_bi := ["a_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..m], i in [1..m] ];
+vars_bi := vars_bi cat ["b_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..n], i in [1..n] ];
+vars_bi := vars_bi cat ["t_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..k], i in [1..k] ];
+
+consts_bi := ["f_" * IntegerToString(s) * "_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..m], i in [1..m], s in [1..k] ];
+consts_bi := consts_bi cat ["p_" * IntegerToString(s) * "_" * IntegerToString(i) * "_" * IntegerToString(j) : j in [1..m], i in [1..m], s in [1..k] ];
+
+R_bi := PolynomialRing(K, m^2+n^2+k^2, "grevlex");
+R_bi_bool := BooleanPolynomialRing(m^2+n^2+k^2, "grevlex");
+AssignNames(~R_bi, vars_bi);
+AssignNames(~R_bi_bool, vars_bi);
+
+// which field
+if(q eq 2) then
+  R := R_bi_bool;
+else
+  R := R_bi;
+end if;
+
+S_bi := Matrix(R, m+n, m+n, [[R.((i-1)*m+j) : j in [1..m]] cat [0 : j in [1..n]]: i in [1..m]] cat [[0 : j in [1..m]] cat [R.((i-1)*n+j+m*m) : j in [1..n]]: i in [1..n]]);
+T_bi := Matrix(R, k, k, [R.((i-1)*k+j+(m^2+n^2)) : j in [1..k], i in [1..k]]);
+
+load "common_modelisation.magma";
+
+function homBMLECreate(F, P)
+  system := [];
+
+  //left side
+  Left := [ ZeroMatrix(BaseRing(T_bi),m+n,m+n) : s in [1..k]];
+  for s := 1 to k do
+     for j := 1 to k do
+       //AddScaledMatrix(Left[s], T_bi[j][s], P[j]);
+       Left[s] := Left[s] + T_bi[j][s]*P[j];
+     end for;
+   end for;
+
+  for s in [1..k] do
+    Right := S_bi*F[s]*Transpose(S_bi);
+    for i in [1..m+n] do
+      for j in [i..m+n] do
+        if (((i le m) and (j gt m))) then
+          Append(~system, Right[i][j]-Left[s][i][j]);
+        end if;
+      end for;
+    end for;
+  end for;
+  return system;
+end function;
+
+function inhomBMLECreate(F_2, P_2, F_1, P_1, F_0, P_0)
+  F_1, P_1, F_0, P_0 := fixCoefficientRingCompatibility(F_1, P_1, F_0, P_0, R);
+  system := homBMLECreate(F_2, P_2);
+  system := addDehomogenization(system, F_1, P_1, F_0, P_0, S_bi, T_bi);
+  return system;
+end function;
+
+function BMLEaddDehomogenization(system, F_1, P_1, F_0, P_0)
+  F_1, P_1, F_0, P_0 := fixCoefficientRingCompatibility(F_1, P_1, F_0, P_0, R);
+  system := addDehomogenization(system, F_1, P_1, F_0, P_0, S_bi, T_bi);
+  return system;
+end function;
+
+function BMLECheckSolution(system, S, T)
+  //The way the system was created, T is actually T^-1
+  for eq_num in [1..#system] do
+    eq_eval := system[eq_num];
+    for i in [1..m] do
+      for j in [1..m] do
+        eq_eval := Evaluate(eq_eval, (i-1)*m+j, S[i][j]);
+      end for;
+    end for;
+    for i in [1..n] do
+      for j in [1..n] do
+        eq_eval := Evaluate(eq_eval, (i-1)*n+j+m*m, S[i+m][j+m]);
+      end for;
+    end for;
+    for i in [1..k] do
+      for j in [1..k] do
+        eq_eval := Evaluate(eq_eval, (i-1)*k+j+(m^2+n^2), T[i][j]);
+      end for;
+    end for;
+    if (eq_eval ne 0) then return false; end if;
+  end for;
+  return true;
+end function;
+
+//only works for deg 2 systems
+function BMLESystemToMacaulayGrevlex(system)
+  //create a list of monomials
+  monomials := [];
+  cpt := 1;
+  // degree 2 monomials - contain only S vars
+  for i in [1..m^2] do
+    for j in [1..n^2] do
+      monomials[cpt] := R.(m^2+j)*R.i;
+      cpt +:= 1;
+    end for;
+  end for;
+  // degree 1 monomials
+  for i in [1..Rank(R)] do
+    monomials[cpt] := R.i;
+    cpt +:= 1;
+  end for;
+  M := MQSpecificSystemToMacaulay(system, R, monomials);
+  return M;
+end function;

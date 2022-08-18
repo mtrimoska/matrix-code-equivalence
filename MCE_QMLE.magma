@@ -1,0 +1,357 @@
+function ProblemGen()
+  S := Random(GL(N, K));
+  T := Random(GL(k, K));
+
+  if T_version eq 2 then
+    T := IdentityMatrix(K,k);
+  end if;
+
+  if T_version eq 3 then
+    assert(N eq k);
+    T := S;
+  end if;
+
+  f := [ RandomMatrix(K,N,N) : i in [1..k]];
+	if q ne 2 then
+		// make f symmetric
+		for s := 1 to k do
+			for i := 1 to N do
+				for j := i+1 to N do
+					f[s][i][j] := f[s][j][i];
+				end for;
+			end for;
+		end for;
+	end if;
+
+  p := ChangeCoordinatesLeft(ChangeCoordinatesRight(f,S),T^-1);
+
+  //l := ChangeCoordinatesRight(ChangeCoordinatesLeft(p,T), S^-1);
+  //f eq l;
+
+  return S,T,f,p;
+end function;
+
+function ProblemGenP()
+  S := Random(GL(N, K));
+  T := Random(GL(k, K));
+
+  p := [ RandomMatrix(K,N,N) : i in [1..k]];
+	if q eq 2 then
+		// x_i^2 does not exist
+		for s := 1 to k do
+			for i := 1 to N do
+				p[s][i][i] := 0;
+			end for;
+		end for;
+	else
+		// make p symmetric
+		for s := 1 to k do
+			for i := 1 to N do
+				for j := i+1 to N do
+					p[s][i][j] := p[s][j][i];
+				end for;
+			end for;
+		end for;
+	end if;
+
+  f := ChangeCoordinatesRight(ChangeCoordinatesLeft(p,T), S^-1);
+
+  return S,T,f,p;
+end function;
+
+function MCEProblemGen()
+	MSpace := KMatrixSpace(K,N,N);
+	GLN := GeneralLinearGroup(N, K);
+
+	M := ZeroMatrix(K,N,N);
+	while IsUnit(M) eq false do
+		randM := [];
+		for i := 1 to m do
+			for j := 1 to m do
+				Append(~randM, Random(K));
+			end for;
+			for j := 1 to n do
+				Append(~randM, 0);
+			end for;
+		end for;
+		for i := 1 to n do
+			for j := 1 to m do
+				Append(~randM, 0);
+			end for;
+			for j := 1 to n do
+				Append(~randM, Random(K));
+			end for;
+		end for;
+		M := MSpace ! randM;
+	end while;
+	S := GLN ! M;
+
+  T := Random(GL(k, K));
+
+	f := [];
+	for z := 1 to k do
+		randM := [];
+		for i := 1 to m do
+			for j := 1 to m do
+				Append(~randM, K!0);
+			end for;
+			for j := 1 to n do
+				Append(~randM, Random(K));
+			end for;
+		end for;
+		for i := 1 to n do
+			for j := 1 to m do
+				Append(~randM, Random(K));
+			end for;
+			for j := 1 to n do
+				Append(~randM, K!0);
+			end for;
+		end for;
+		M := Matrix(K, N, N, randM);
+		Append(~f, M);
+	end for;
+
+
+	if q ne 2 then
+		// make f symmetric
+		for z := 1 to k do
+			for i := 1 to N do
+				for j := i+1 to N do
+					f[z][i][j] := f[z][j][i];
+				end for;
+			end for;
+		end for;
+	end if;
+
+  p := ChangeCoordinatesLeft(ChangeCoordinatesRight(f,S),T^-1);
+
+  return S,T,f,p;
+end function;
+
+function MCEProblemGenNonPositive()
+	f := [];
+	for z := 1 to k do
+		randM := [];
+		for i := 1 to m do
+			for j := 1 to m do
+				Append(~randM, K!0);
+			end for;
+			for j := 1 to n do
+				Append(~randM, Random(K));
+			end for;
+		end for;
+		for i := 1 to n do
+			for j := 1 to m do
+				Append(~randM, Random(K));
+			end for;
+			for j := 1 to n do
+				Append(~randM, K!0);
+			end for;
+		end for;
+		M := Matrix(K, N, N, randM);
+		Append(~f, M);
+	end for;
+
+	p := [];
+	for z := 1 to k do
+		randM := [];
+		for i := 1 to m do
+			for j := 1 to m do
+				Append(~randM, K!0);
+			end for;
+			for j := 1 to n do
+				Append(~randM, Random(K));
+			end for;
+		end for;
+		for i := 1 to n do
+			for j := 1 to m do
+				Append(~randM, Random(K));
+			end for;
+			for j := 1 to n do
+				Append(~randM, K!0);
+			end for;
+		end for;
+		M := Matrix(K, N, N, randM);
+		Append(~p, M);
+	end for;
+
+  return f, p;
+end function;
+
+function ProblemGenNonPositive()
+	f := [ RandomMatrix(K,m+n,m+n) : i in [1..k]];
+	p := [ RandomMatrix(K,m+n,m+n) : i in [1..k]];
+
+  return f, p;
+end function;
+
+
+function dehomogenize(S, f, p)
+	DMat_basis_f := [ DMat(f,V.i) : i in [1..N]];
+	DMat_basis_p := [ DMat(p,V.i) : i in [1..N]];
+
+	x := Random(V);
+	xS := x*S;
+
+
+	F_2 := f;
+	F_1 := DMat2(DMat_basis_f, xS);
+	F_0 := Encrypt(f,xS);
+
+	P_2 := p;
+	P_1 := DMat2(DMat_basis_p, x);
+	P_0 := Encrypt(p,x);
+
+	return F_2, F_1, F_0, P_2, P_1, P_0;
+end function;
+
+function dehomogenize_collision(f, p, x, y)
+	DMat_basis_f := [ DMat(f,V.i) : i in [1..N]];
+	DMat_basis_p := [ DMat(p,V.i) : i in [1..N]];
+
+	F_2 := f;
+	F_1 := DMat2(DMat_basis_f, x);
+	F_0 := Encrypt(f,x);
+
+	P_2 := p;
+	P_1 := DMat2(DMat_basis_p, y);
+	P_0 := Encrypt(p,y);
+
+	return F_2, F_1, F_0, P_2, P_1, P_0;
+end function;
+
+function get_inhomogenous_linear_part(f, x)
+  DMat_basis_f := [ DMat(f,V.i) : i in [1..N]];
+  F_1 := DMat2(DMat_basis_f, x);
+	F_0 := Encrypt(f,x);
+  return F_1, F_0;
+end function;
+
+
+function rank_stats(a)
+	DMat_basis_a := [ DMat(a,V.i) : i in [1..N]];
+	cpt_rank := [0 : i in [1..N+1]];
+	cpt_rank_nice := [0 : i in [1..N+1]];
+  cpt_not_nice_zero := [0 : i in [1..N+1]];
+  cpt_not_nice_consistent := [0 : i in [1..N+1]];
+  cpt_dimension := [0 : i in [1..N+1]];
+
+	for xx in V do
+		M := DMat2(DMat_basis_a,xx);  // Computes the differential of f in xx
+		r := Rank(M);
+		fx := Encrypt(a,xx);
+		cpt_rank[r+1] +:= 1;
+		if not IsZero(fx) and IsConsistent(M,fx) then
+			cpt_rank_nice[r+1] +:= 1;
+      y_0, Ka := Solution(M, fx);
+      dim := Dimension(Ka);
+      cpt_dimension[dim+1] +:= 1;
+    else
+      if IsZero(fx) then
+        cpt_not_nice_zero[r+1] +:= 1;
+      end if;
+      if not IsConsistent(M,fx) then
+        cpt_not_nice_consistent[r+1] +:= 1;
+      end if;
+		end if;
+	end for;
+	for i in [1..N+1] do
+    if cpt_rank[i] ne 0 then
+  		printf "rank %o : %o occurences, %o nice occurences, zero: %o, not in Img: %o\n", i-1, cpt_rank[i], cpt_rank_nice[i], cpt_not_nice_zero[i], cpt_not_nice_consistent[i];
+  	end if;
+	end for;
+	return cpt_rank, cpt_rank_nice, cpt_not_nice_zero, cpt_not_nice_consistent, cpt_dimension;
+end function;
+
+// checking if a collision if found without using the solver
+function check_collision_found(S, T, a, b, La, Lb)
+	res := 0;
+	for y in Lb do
+		for x in La do
+			yS := y*S;
+			if yS eq x then
+				res := 1;
+			end if;
+		end for;
+	end for;
+	return res;
+end function;
+
+
+// *********************************************************
+// * Given a basis of S, finish the Job - when we are working with the non-zeros (for Algorithm 2)
+function finish_nonzeros(a_2,b_2,a_1,b_1,a_0,b_0,r,S_basis, T_basis)
+  R := PolynomialRing(K, r);
+
+  poly_a := [ Matrix(R,M) : M in a_2 ];
+  poly_b := [ Matrix(R,M) : M in b_2 ];
+
+  poly_a_1 := Matrix(R,a_1);
+  poly_b_1 := Matrix(R,b_1);
+  poly_a_0 := Matrix(R,a_0);
+  poly_b_0 := Matrix(R,b_0);
+
+  Sx := &+ [ Matrix(R, R.i * S_basis[i]) : i in [1..r]];
+  Tx := &+ [ Matrix(R, R.i * T_basis[i]) : i in [1..r]];
+
+  "--> Computing RHS (usually fast)";
+  time Tbx := ChangeCoordinatesLeft(poly_b,Tx);
+
+  "--> Computing LHS (usually slow)";
+
+  time coeffs_2 := [  [ [ S_basis[i] * A * Transpose(S_basis[j]) : j in [1..r]] : i in [1..r]] : A in a_2 ];
+
+  time aSx := ChangeCoordinatesRight(poly_a,Sx);
+
+  assert MonomialCoefficient(aSx[1][1,1], R.1*R.2) eq coeffs_2[1][1,2][1,1]+coeffs_2[1][2,1][1,1];
+
+  z := ReducedForm([ Tbx[i] - aSx[i] : i in [1..k]]);
+  eqs := &cat [ ElementToSequence(z[i]) : i in [1..k] ];
+
+  // &&
+  // Adding the linear and constant part because otherwise it does not work for the zeros and nonzeros
+
+  // Linear - no need actually
+  Left := poly_b_1*Tx;
+  Right := Sx*poly_a_1;
+  z := Right - Left;
+  eqs1 := &cat [ ElementToSequence(z) ];
+  eqs := eqs cat eqs1;
+
+  //Constant
+  Left := poly_b_0*Tx;
+  z := poly_a_0[1] - Left[1];
+  eqs0 := &cat [ ElementToSequence(z) ];
+  eqs := eqs cat eqs0;
+
+
+  if (q lt r) then
+    "--> Adding field equations";
+    eqs := eqs cat [R.i^(q) - R.i : i in [1..r]];
+  end if;
+
+  printf "--> Groebner Basis : %o variables and %o equations over GF(%o).\n", r, #eqs, q;
+
+  J := Ideal(eqs);
+  time Va := VarietySequence(J);
+
+   non_trivial := [];
+
+  for sol in Va do
+    if not IsZero(Vector(sol)) then
+      S_ := &+ [ S_basis[i] * sol[i] : i in [1..r]];
+      T_ := &+ [ T_basis[i] * sol[i] : i in [1..r]];
+
+      for i := 1 to 100 do
+        x := Random(V);
+        if Encrypt(a_2,x*S_) ne Encrypt(b_2,x)*T_ then
+          "aaargh, mauvaise solution ! (c'est un bug)";
+          exit;
+        end if;
+      end for;
+
+      Include(~non_trivial, <S_,T_>); ;
+   end if;
+  end for;
+  return non_trivial;
+end function;

@@ -1,0 +1,148 @@
+
+// *********************************************************
+// * Given a basis of S, finish the Job - when we are working with the non-zeros (for Algorithm 2)
+function finish_nonzeros(a_2,b_2,a_1,b_1,a_0,b_0,r,S_basis, T_basis)
+  printf "We are in finish_nonzeros";
+  R := PolynomialRing(K, r);
+
+  poly_a := [ Matrix(R,M) : M in a_2 ];
+  poly_b := [ Matrix(R,M) : M in b_2 ];
+
+  poly_a_1 := Matrix(R,a_1);
+  poly_b_1 := Matrix(R,b_1);
+  poly_a_0 := Matrix(R,a_0);
+  poly_b_0 := Matrix(R,b_0);
+
+  Sx := &+ [ Matrix(R, R.i * S_basis[i]) : i in [1..r]];
+  Tx := &+ [ Matrix(R, R.i * T_basis[i]) : i in [1..r]];
+
+  "--> Computing RHS (usually fast)";
+  time Tbx := ChangeCoordinatesLeft(poly_b,Tx);
+
+  "--> Computing LHS (usually slow)";
+
+  time coeffs_2 := [  [ [ S_basis[i] * A * Transpose(S_basis[j]) : j in [1..r]] : i in [1..r]] : A in a_2 ];
+
+  time aSx := ChangeCoordinatesRight(poly_a,Sx);
+
+  assert MonomialCoefficient(aSx[1][1,1], R.1*R.2) eq coeffs_2[1][1,2][1,1]+coeffs_2[1][2,1][1,1];
+
+  z := ReducedForm([ Tbx[i] - aSx[i] : i in [1..k]]);
+  eqs := &cat [ ElementToSequence(z[i]) : i in [1..k] ];
+
+  // &&
+  // Adding the linear and constant part because otherwise it does not work for the zeros and nonzeros
+
+  // Linear - no need actually
+  Left := poly_b_1*Tx;
+  Right := Sx*poly_a_1;
+  z := Right - Left;
+  eqs1 := &cat [ ElementToSequence(z) ];
+  eqs := eqs cat eqs1;
+
+  //Constant
+  Left := poly_b_0*Tx;
+  z := poly_a_0[1] - Left[1];
+  eqs0 := &cat [ ElementToSequence(z) ];
+  eqs := eqs cat eqs0;
+
+
+  if (q lt r) then
+    "--> Adding field equations";
+    eqs := eqs cat [R.i^(q) - R.i : i in [1..r]];
+  end if;
+
+  printf "--> Groebner Basis : %o variables and %o equations over GF(%o).\n", r, #eqs, q;
+
+  J := Ideal(eqs);
+  time Va := VarietySequence(J);
+
+   non_trivial := [];
+
+  for sol in Va do
+    if not IsZero(Vector(sol)) then
+      S_ := &+ [ S_basis[i] * sol[i] : i in [1..r]];
+      T_ := &+ [ T_basis[i] * sol[i] : i in [1..r]];
+      Include(~non_trivial, <S_,T_>); ;
+   end if;
+  end for;
+  return non_trivial;
+end function;
+
+function FindIsomorphism_Inhomogeneous_Alg2(a_2,a_1,a_0,b_2,b_1,b_0, do_big_ker, do_small_ker)
+
+"********************************************************";
+"*           INHOMOGENEOUS CODE -- MAIN                 *";
+"********************************************************";
+
+if not IsConsistent(b_1, b_0) then
+   "aaargl ! I'm aborting on line 2 ! Instance is not nice....\n";
+   return [];
+ end if;
+
+printf "--> Matrix will be of size %o, with density %.3o\n", 2*N^2, 4.0/N;
+
+// assert IsConsistent(a_1, a_0);
+// assert a_0 eq b_0*T;
+// assert S*a_1 eq b_1*T;
+
+// find the other relation on S.
+x := Solution(b_1, b_0);
+y_0, Ka := Solution(a_1, a_0);
+
+
+if Dimension(Ka) eq 0 then
+  printf "--> Invertible linear part ! Cool !\n";
+
+  r, S_basis, T_basis := kernel_basis(a_2,a_1, b_2,b_1, x, y_0);
+  printf "--> S and T live in a space of dimension %o\n", r;
+
+  sols := finish_nonzeros(a_2,b_2,a_1,b_1,a_0,b_0,r,S_basis, T_basis);
+  printf "--> Found %o non-trivial and valid solutions.\n", #sols;
+  return sols;
+
+else // Non-invertible linear part
+
+  printf "--> The linear part has a kernel of dimension %o.\n", Dimension(Ka);
+  printf "----> We will have %o iterations of the loop.\n", q^Dimension(Ka);
+
+  bigest_ker_dim := 0;
+  all_ker := [];
+
+  if do_big_ker then "--> doing big kernels "; end if;
+  if do_small_ker then "--> doing small kernels "; end if;
+
+  for y_Ka in Ka do
+    y := y_0 + y_Ka;
+    r, S_basis, T_basis := kernel_basis(a_2, a_1, b_2, b_1, x, y);
+
+    Include(~all_ker, <S_basis,T_basis>);
+
+    if r gt bigest_ker_dim then
+      bigest_ker_dim := r;
+    end if;
+  end for;
+
+  r := bigest_ker_dim;
+
+  for i := 1 to #all_ker do
+
+     S_basis := all_ker[i][1];
+     T_basis := all_ker[i][2];
+     r := #S_basis;
+
+     if (r eq bigest_ker_dim and do_big_ker) or (r lt bigest_ker_dim and do_small_ker) then
+
+       printf "[heuristic : %o/%o] --> S and T live in a space of dimension %o\n", i, #all_ker, r;
+
+       sols := finish_nonzeros(a_2,b_2,a_1,b_1,a_0,b_0,r,S_basis, T_basis);
+       if #sols gt 0 then
+          printf "--> Found %o non-trivial and valid solutions.\n", #sols;
+         return sols;
+       end if;
+     end if;
+  end for;
+
+  return [];
+end if;
+end function;

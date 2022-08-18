@@ -1,0 +1,90 @@
+q := 3;
+k := 8;
+N := 8;
+nb_instances := 1;
+
+// set to 1 to generate random instances. set to 0 to generate instances derived from a collision
+random_instances := 1;
+// set this paramter to a value from 1 to k in order to generate instances with a specified rank
+rank_target := 0;
+
+K:=FiniteField(q);
+V:=VectorSpace(K,N);
+T_version := 1;
+m := Round(N / 2);
+n := N - m;
+
+load "BFV13_rank_algo.magma";
+load "MCE_QMLE.magma";
+load "QMLE_modelisation.magma";
+
+printf "k=%o, N=%o, K=GF(%o)\n", k, N, q;
+
+l := [];
+l_build := [];
+l_rank := [];
+for i := 1 to nb_instances do
+	if rank_target gt 0 then
+		rank := 0;
+		while rank ne rank_target do
+			S,T,f,p := ProblemGen();
+			if random_instances eq 0 then
+				F_2, F_1, F_0, P_2, P_1, P_0 := dehomogenize(S, f, p);
+			else
+				F_2, F_1, F_0, P_2, P_1, P_0 := random_inhomogeneous(f,p,S,T);
+			end if;
+			rank := Rank(F_1);
+		end while;
+	else
+		S,T,f,p := ProblemGen();
+		if random_instances eq 0 then
+			F_2, F_1, F_0, P_2, P_1, P_0 := dehomogenize(S, f, p);
+		else
+			F_2, F_1, F_0, P_2, P_1, P_0 := random_inhomogeneous(f,p,S,T);
+		end if;
+		rank := Rank(F_1);
+	end if;
+	print "Solutions should be: ", S, T;
+
+	t := Cputime();
+	B := inhomQMLECreate(F_2, P_2, F_1, P_1, F_0, P_0);
+	Append(~l_build, Cputime() - t);
+	Append(~l_rank, rank);
+
+	printf "Solution should be ok: %o\n", QMLECheckIfSolution(B, S, T);
+
+	I := Ideal(B);
+	SetVerbose("Groebner", 1);
+	t := Cputime();
+	sols := Variety(I);
+	Append(~l, Cputime() - t);
+	printf "\n%o solution(s) found:\n", #sols;
+	sols;
+end for;
+
+printf "Build Runtime:";
+print l_build;
+avg := 0;
+for i in l_build do
+	avg := avg+i;
+end for;
+avg := avg/#l_build;
+printf "Average build runtime : %o (nb. tests : %o)\n", avg, #l_build;
+
+printf "Runtime:";
+print l;
+avg := 0;
+for i in l do
+	avg := avg+i;
+end for;
+avg := avg/#l;
+printf "Average runtime : %o (nb. tests : %o)\n", avg, #l;
+
+printf "Rank:";
+print l_rank;
+avg := 0;
+for i in l_rank do
+	avg := avg+i;
+end for;
+avg := avg/#l_rank;
+printf "Average rank : %o (nb. tests : %o)\n", avg, #l_rank;

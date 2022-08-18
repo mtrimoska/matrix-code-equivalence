@@ -1,0 +1,101 @@
+q := 3;
+N:=16;
+k:=15;
+
+nb_tests := 10;
+
+K:=FiniteField(q);
+V:=VectorSpace(K,N);
+T_version := 1;
+m := Round(N / 2);
+n := N - m;
+
+load "BFV13_rank_algo.magma";
+load "Algorithm2.magma";
+load "MCE_QMLE.magma";
+load "BMLE_modelisation.magma";
+
+printf "N=%o (m=%o, n=%o), K=GF(%o)\n", N, m, n, q;
+
+runtime_build_lists := [];
+runtime_solver_1 := [];
+success := []; //takes 0, 1, 2 : 0 list was empty, 1 list had only zeros, 2 list had more elements
+size_lists := [];
+kappa_used := [];
+
+for i := 1 to nb_tests do
+	S,T,f,p := MCEProblemGen();
+	t := Cputime();
+	Lf_zero, Lf_nonzero, Lp_zero, Lp_nonzero := BuildLists_zeros_nonzeros(f,p);
+	Append(~runtime_build_lists, Cputime() - t);
+
+	print "Solutions should be: ", S, T;
+
+	//check if we have nonzeros
+	if Lf_nonzero eq {} then
+		Append(~success, 0);
+	else
+		Append(~success, 1);
+		printf "Number of elements per set : %o", #Lf_nonzero;
+
+		DMat_basis_f := [ DMat(f,V.i) : i in [1..N]];
+		DMat_basis_p := [ DMat(p,V.i) : i in [1..N]];
+		t := Cputime();
+		sols := do_pairs_deterministic(Lf_nonzero, Lp_nonzero, f, p, DMat_basis_f, DMat_basis_p, true, false);
+		if sols eq [] then
+			"-----> Did not found solution with big kers. Switching to small kers.";
+		  sols := do_pairs_deterministic(Lf_nonzero, Lp_nonzero, f, p, DMat_basis_f, DMat_basis_p, false, true);
+		end if;
+		Append(~runtime_solver_1, Cputime() - t);
+		Append(~size_lists, #Lf_nonzero);
+		printf "\n%o solution(s) found:\n", #sols;
+		sols;
+	end if;
+	printf "Test %o finished\n", i;
+end for;
+
+// Print stats
+
+print "Success case: ", success;
+cpt_1 := 0;
+cpt_2 := 0;
+for i in success do
+	if i eq 0 then cpt_1 +:= 1; end if;
+	if i eq 1 then cpt_2 +:= 1; end if;
+end for;
+print "Failed :", cpt_1, "times.";
+print "Succeeded:", cpt_2, "times.";
+print "\n";
+
+print "Building lists runtime:", runtime_build_lists;
+avg := 0;
+for i in runtime_build_lists do
+	avg := avg+i;
+end for;
+if avg ne 0 then
+	avg := avg/#runtime_build_lists;
+end if;
+print "Average building lists runtime:", avg;
+print "\n";
+
+print "Solver runtime on nonzeros:", runtime_solver_1;
+avg := 0;
+for i in runtime_solver_1 do
+	avg := avg+i;
+end for;
+if avg ne 0 then
+	avg := avg/#runtime_solver_1;
+end if;
+print "Average solver runtime on nonzeros:", avg;
+print "\n";
+
+print "Size of nonzeros list:", size_lists;
+avg := 0;
+for i in size_lists do
+	avg := avg+i;
+end for;
+if avg ne 0 then
+	avg := (avg+0.0)/#size_lists;
+end if;
+print "Average size of nonzeros list:", avg;
+print "\n";

@@ -1,0 +1,234 @@
+
+load "BFV13_inhomogeneous.magma";
+
+
+// uses a precomputed basis of the differential
+function DMat2(basis, z)
+ D := ZeroMatrix(K,N,k);
+  for j := 1 to N do
+    AddScaledMatrix(~D, z[j], basis[j]);
+  end for;
+  return D;
+end function;
+
+
+///////////////////////////////////////////////////////////////////////
+
+
+// ********************* Rank Lists
+
+function NiceRankList(f,DMat_basis, l,kappa,multiplier)
+printf "Using algorithm 1\n";
+  L := {};
+  outer := 0;
+  inner := 0;
+  middle := 0;
+
+  repeat
+    repeat
+      for i := 1 to Floor(10*q^N/(l^2)) do
+        x := Random(V);
+        M := DMat2(DMat_basis,x);  // Computes the differential of f in x
+        r := Rank(M);
+        inner +:= 1;
+        if r eq N-kappa then break; end if;
+      end for;
+      if r ne N-kappa then
+        "FAILING ! K is TOO BIG !\n";
+        return {};
+      end if;
+
+      // M has the right rank
+      fx := Encrypt(f,x);
+	    middle +:= 1;
+    until not IsZero(fx) and IsConsistent(M,fx) or (middle ge Floor(multiplier*l)*10);
+
+    // M has the right rank AND fx \in Img M
+    outer +:= 1;
+
+	if (middle ge Floor(multiplier*l)*10) then
+		printf "Stopped on middle\n";
+		return {};
+	end if;
+
+    Include(~L,x);
+  until (#L ge l*multiplier) or (outer ge Floor(multiplier*l)*10);
+
+  if #L lt l*multiplier then
+  	"FAILING in the outer loop\n";
+  	return {};
+  end if;
+
+  printf "inner:%o, middle:%o, outer:%o\n", inner, middle, outer;
+  printf "\nNiceRankList : finished with %o outer iterations and an average of %.2o inner iterations per element\n", outer,  inner/l;
+  return L;
+end function;
+
+/////////////////////////////// Stats stuff
+
+function lambda(q,n)
+  if n le 0 then return 1;
+  else
+  return &* [ 1 - q^(-i) : i in [1..n]];
+  end if;
+end function;
+
+function a_ERk(q,n,d)
+  return lambda(q,n)*lambda(q,n-1)/lambda(q,d)/lambda(q,d-1)/lambda(q,n-d-1);
+end function;
+
+function ERk(q,n,d)
+  return a_ERk(q,n,d) * q^(n-d^2);
+end function;
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+// MAIN LOOP
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+function do_pairs(La, Lb, a, b, DMat_basis_a, DMat_basis_b, big, small)
+
+it := 1;
+
+for x in Lb do
+
+  b_1 := DMat2(DMat_basis_b, x);
+  b_0 := Encrypt(b,x);
+
+  r_x := Rank(b_1);
+
+  if (not IsZero(b_0) and IsConsistent(b_1,b_0)) then
+
+  for y in La do
+
+    a_1 := DMat2(DMat_basis_a,y);
+    a_0 := Encrypt(a,y);
+
+    r_y := Rank(a_1);
+    print "Rank x: ", r_x, "rank y: ", r_y;
+    print "\n";
+
+    if r_x ne r_y then continue; end if;
+
+    assert IsConsistent(a_1, a_0);
+
+    printf "iteration %o over %o\n", it, #La*#Lb;
+    it +:= 1;
+
+    sols := FindIsomorphism_Inhomogeneous(a,a_1,a_0, b, b_1, b_0,big,small);
+
+    if sols ne [] then
+		printf "found sols for x:%o and y:%o\n", x, y;
+      return sols;
+    end if;
+  end for;
+  end if;
+end for;
+return [], 0, 0;
+end function;
+
+///////////////////
+
+function FindIsomorphism_Rank(f,p,suggested_kappa,suggested_l,suggested_multiplier)
+
+"\n============ Rank Algorithm =============== \n";
+
+
+// more or less intelligent choice of kappa and l
+
+if N/3 + 1/9 - 2*Log(N)/Log(q) lt 0 then
+  kappa := 2;
+else
+  kappa := Round(1/3 + Sqrt(N/3 + 1/9 - 2*Log(N)/Log(q)));
+end if;
+
+l := Max(1, Floor(Sqrt( ERk(q,N,kappa))));
+while q^N/l lt N^3*l^2 do
+  kappa +:= 1;
+  l := Max(1, Floor(Sqrt( ERk(q,N,kappa))));
+end while;
+
+while ERk(q,N,kappa) lt 1 do
+  kappa -:= 1;
+end while;
+l := Max(1, Floor(Sqrt( ERk(q,N,kappa))));
+
+multiplier := 1.5;
+
+
+if suggested_kappa gt 0 then kappa := suggested_kappa; l := Max(1, Floor(Sqrt( ERk(q,N,kappa)))); end if;
+if suggested_l gt 0 then l := suggested_l; end if;
+if suggested_multiplier gt 0 then multiplier := suggested_multiplier; end if;
+
+printf "kappa:%o, l:%o\n", kappa, l;
+
+
+printf "Choosing kappa=%o, which gives E(|R_kappa|) = 2^%.2o and l=2^%.2o\n", kappa, Log(ERk(q,N,kappa))/Log(2), Log(l)/Log(2);
+
+printf "NiceRankList : \n";
+printf "-->  We expect %o iterations of the outer loop, each with %o iterations of the inner loop.\n", Floor(multiplier*l), Floor(q^N/(l^2));
+
+printf "--> That makes a total of 2^%.2o matrix operations.\n", Log(q^N/l)/Log(2);
+
+printf "\nMain Loop : \n";
+printf "-->  We expect 2^%.2o iterations of the main loop.\n", Log(l^2)/Log(2);
+printf "-->  Each Inhomogeneous instance will have 2^%.2o trials.\n", Log(q^k)/Log(2);
+
+
+"Computing Differentials";
+
+/********** On précalcule les matrices des différentielles par rapport
+            aux vecteurs de la base canonique, car ça accélère le calcul
+**************/
+DMat_basis_f := [ DMat(f,V.i) : i in [1..N]];
+DMat_basis_p := [ DMat(p,V.i) : i in [1..N]];
+
+
+"\n============ NiceRankLists =============== \n";
+
+
+t := Cputime();
+
+	repeat
+	  Lf := NiceRankList(f, DMat_basis_f,l,kappa,multiplier);
+	  if Lf eq {} then
+		kappa -:= 1;
+		l := Max(1, Floor(Sqrt( ERk(q,N,kappa))));
+	  else
+		Lp := NiceRankList(p, DMat_basis_p,l,kappa,multiplier);
+	  end if;
+	until (Lf ne {}) and (Lp ne {}) or (kappa le 0);
+
+
+if (Lf eq {}) or (Lp eq {}) then
+	printf "FAILED to build lists\n";
+	return [];
+end if;
+
+Phase_1_time := Cputime() - t;
+
+printf "\nGenerating the lists took %o seconds, with kappa=%o and l=%o\n", Phase_1_time, kappa, l;
+
+"\n============ Main loops =============== \n";
+
+t := Cputime();
+
+// check whether there is a right pair
+
+//n_right_pairs := # ( La meet { x*S : x in Lb});
+//printf "there is/are %o right pairs !\n", n_right_pairs;
+
+//assert not n_right_pairs eq 0;
+
+// now test all the pairs....
+
+sols := do_pairs(Lf, Lp, f, p, DMat_basis_f, DMat_basis_p, true, false);
+if sols ne [] then
+  return sols;
+else
+  "-----> Did not found solution with big kers. Switching to small kers.";
+  return do_pairs(Lf, Lp, f, p, DMat_basis_f, DMat_basis_p, false, true);
+end if;
+end function;
